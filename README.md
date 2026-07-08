@@ -1,120 +1,115 @@
 # zkbench
 
-A tool to **profile the proof-generation process** of ZK circuits written in Noir.
+A reproducible proof-generation benchmarker for [Noir](https://noir-lang.org/) ZK circuits.
 
-It measures, stage by stage, "where and how long proof generation takes
-(witness generation vs. proof generation) and how much memory it uses," and
-saves those raw numbers as structured JSON. The end goal is to visualize this
-data in a dashboard, but **this repository is stage 1 of that — a minimal
-viable version that measures a single circuit and stores the result as JSON.**
+`zkbench` measures how long it takes — and how much memory it costs — to generate
+zero-knowledge proofs for your Noir circuits, and presents the results as clean
+tables, terminal bar charts, and an HTML report.
 
-> Intentionally absent (for now): visualization/dashboard, multi-circuit
-> comparison. Those are next steps.
+## Screenshots
 
-## Requirements
+Terminal comparison:
 
-- [Noir](https://noir-lang.org/) (`nargo`) — verified with `1.0.0-beta.3`
-- [Barretenberg](https://github.com/AztecProtocol/barretenberg) (`bb`) — verified with `0.82.2`
-- `jq`, GNU `/usr/bin/time` (used for peak memory measurement)
+![terminal output](zkbench/docs/zkbench_cli.png)
 
-Different versions may change `bb`'s subcommand syntax. Check with
-`nargo --version` / `bb --version`, and adjust the `bb` calls in
-`scripts/bench.sh` if needed.
+HTML report:
 
-## Layout
+![html report](zkbench/docs/zkbench_html.png)
 
-```
-zk-prove-bench/
-├── circuits/
-│   └── balance_threshold/     circuit under test; the unit for adding/swapping circuits
-│       ├── Nargo.toml         package definition
-│       ├── Prover.toml        proving inputs (balance, threshold) <- parameter swap point
-│       └── src/main.nr        balance threshold proof circuit
-├── scripts/
-│   └── bench.sh               measurement pipeline (the core)
-└── results/
-    └── bench_<circuit>_<timestamp>.json   where results accumulate
-```
 
-## Circuit under test: `balance_threshold`
+## Why another benchmarker?
 
-```rust
-fn main(balance: u64, threshold: pub u64) {
-    assert(balance >= threshold);
-}
-```
+Measuring ZK proving performance naively is misleading. The first run of any
+circuit pays a one-time cost (CRS fetch, cold caches) that inflates the numbers,
+and system noise can produce phantom results that look like real effects but
+disappear on re-measurement.
 
-A minimal payment / stablecoin example — without revealing the actual balance
-(`balance`, private), it proves only the fact that "the balance is at or above
-a threshold" (`threshold`, public).
+`zkbench` focuses on **honest, reproducible measurement**:
 
-## Running
+- **Warm-up runs are discarded.** A global warm-up absorbs CRS/cold-start cost
+  before any measurement begins, and per-circuit warm-up runs are dropped.
+- **Median of repeats.** Each stage is measured multiple times and the median is
+  reported, so a single noisy run can't skew the result.
+- **witness and prove measured separately.** Proof generation is dominated by
+  the `prove` stage; separating it from `witness` shows where the real cost is —
+  and how that shifts as circuits grow.
+
+These aren't cosmetic: while building this tool, naive measurement produced a
+"staircase" in proving time that looked like a hard performance cliff. It was
+contamination. With warm-up + median, the real curve is smooth.
+
+## Install
 
 ```bash
-# Default: measures circuits/balance_threshold
-./scripts/bench.sh
-
-# To measure a different circuit, pass its directory
-./scripts/bench.sh circuits/<other_circuit>
+cargo install zkbench
 ```
 
-To change the inputs (balance/threshold), edit only
-`circuits/balance_threshold/Prover.toml`.
+Requires [`nargo`](https://noir-lang.org/) and
+[`bb`](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg)
+(Barretenberg) on your `PATH`.
 
-### What the pipeline does
+Tested with: `nargo 1.0.0-beta.x`, `bb` (UltraHonk backend).
 
-1. **warm-up compile** (`nargo compile`) — not measured. Compiles up front so
-   compile time does not leak into the witness measurement.
-2. **witness generation** (`nargo execute`) — measures wall-clock time + peak memory
-3. **circuit size** (`bb gates`) — extracts ACIR opcode count + gate (constraint) count
-4. **proof generation** (`bb prove`) — measures wall-clock time + peak memory
-5. writes the result to `results/bench_<circuit>_<timestamp>.json`
+## Usage
 
-## Result JSON field meanings
+Measure a single circuit:
 
-```json
-{
-  "circuit": "balance_threshold",     // circuit name (package name)
-  "backend": "ultra_honk",            // proving scheme
-  "timestamp": "2026-...",            // measurement time
-  "tool_versions": { "nargo": "...", "bb": "..." },  // versions for reproducibility
-  "constraints": 2810,                // backend (UltraHonk) gate/constraint count = key circuit-size metric
-  "acir_opcodes": 6,                  // ACIR-level opcode count (higher-level, before backend expansion)
-  "witness_time_ms": 180,             // witness generation wall-clock (ms)
-  "prove_time_ms": 110,               // proof generation wall-clock (ms)
-  "peak_mem_mb": {                    // per-stage peak physical memory (MB, human-readable)
-    "witness": 87.16,
-    "prove": 61.81
-  },
-  "peak_mem_kb": {                    // same values, raw (KB, precision first)
-    "witness": 89248,
-    "prove": 63292
-  }
-}
+```bash
+zkbench run ./path/to/circuit
 ```
 
-### How things are measured (exactly what is captured)
+Compare several circuits side by side:
 
-- **Time**: `/usr/bin/time`'s `%e` = the process's **wall-clock elapsed time**
-  (seconds). Not CPU time — wall-clock, so it includes I/O and waiting, i.e.
-  the perceived latency.
-- **Peak memory**: `/usr/bin/time`'s `%M` = **maximum resident set size**
-  (`ru_maxrss`, KB). The max physical memory the process held over its
-  lifetime — not total heap, but the peak actually resident in RAM.
-- Time and memory are captured in the **same single process run**.
-- witness and prove are **separate processes**, so their time/memory never mix.
+```bash
+zkbench compare ./circuit_a ./circuit_b ./circuit_c
+```
 
-### Notes on interpreting the numbers
+Generate an HTML report from accumulated results and open it:
 
-- **The first ever `bb prove` run fetches the CRS (common reference string)
-  from the internet, which can inflate the time.** For a representative value,
-  run once to cache the CRS, then use the second run's value.
-- Values jitter run to run (scheduling / cache state). Prefer running several
-  times and looking at the distribution.
-- `constraints` (gate count) is determined by circuit structure, independent of
-  inputs. Time and memory, by contrast, depend on machine state.
+```bash
+zkbench report --open
+```
 
-## Next steps (out of scope for this repo)
+A "circuit" is any folder containing a `Nargo.toml` (and a `Prover.toml` with
+valid inputs). `zkbench` reads the package name, compiles, and measures.
 
-- Accumulate result JSON across multiple circuits/parameters
-- A dashboard that reads the accumulated JSON to compare time, memory, and circuit size
+## What it measures
+
+For each circuit:
+
+| Metric        | Meaning                                            |
+|---------------|----------------------------------------------------|
+| `constraints` | Backend gate count (proving cost driver)           |
+| `acir_opcodes`| ACIR-level opcode count (pre-lowering)             |
+| `witness`     | Witness generation: wall-clock time + peak memory  |
+| `prove`       | Proof generation: wall-clock time + peak memory    |
+
+Results are saved as JSON under `results/` and can be turned into an HTML report.
+
+## Example
+
+```
+● circuit comparison
+┌───────────────────┬─────────────┬──────────────┬────────────┬────────────┐
+│ circuit           ┆ constraints ┆ witness (ms) ┆ prove (ms) ┆ prove (MB) │
+├───────────────────┼─────────────┼──────────────┼────────────┼────────────┤
+│ pure_compare      ┆ 2812        ┆ 210          ┆ 250        ┆ 36         │
+│ zk_voting         ┆ 3739        ┆ 275          ┆ 300        ┆ 39         │
+│ hash_light        ┆ 12048       ┆ 275          ┆ 335        ┆ 57         │
+│ balance_threshold ┆ 67428       ┆ 390          ┆ 660        ┆ 143        │
+└───────────────────┴─────────────┴──────────────┴────────────┴────────────┘
+```
+
+Note how `prove` grows faster than `witness` as circuits get larger, and how
+peak memory scales even more steeply than time — the practical limit for
+constrained environments (e.g. mobile / client-side proving) is often memory,
+not time.
+
+## Status
+
+Early. Built as a learning project and a foundation for benchmarking
+client-side / constrained-environment proving. Contributions and issues welcome.
+
+## License
+
+Licensed under either of MIT or Apache-2.0 at your option.
