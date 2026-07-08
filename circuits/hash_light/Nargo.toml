@@ -1,5 +1,5 @@
 [package]
-name = "balance_threshold"
+name = "hash_light"
 type = "bin"
 authors = [""]
 

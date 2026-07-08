@@ -16,6 +16,9 @@ pub struct Circuit {
     pub bytecode: PathBuf,
     pub witness: PathBuf,
     pub proof_dir: PathBuf,
+    /// Directory for the precomputed verification key. `bb write_vk -o <vk_dir>`
+    /// writes a `vk` file inside it, which `bb prove -k` then reads.
+    pub vk_dir: PathBuf,
 }
 
 /// Minimal view of Nargo.toml — we only need the package name.
@@ -58,6 +61,7 @@ impl Circuit {
             bytecode: target.join(format!("{name}.json")),
             witness: target.join(format!("{name}.gz")),
             proof_dir: target.join("proof"),
+            vk_dir: target.join("vk"),
             name,
             dir,
         })

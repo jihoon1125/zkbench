@@ -1,0 +1,9 @@
+# Proving inputs (used for witness generation).
+# To swap parameters, edit only these values.
+#
+# balance   : private — the actual balance
+# threshold : pub     — the public threshold value
+#
+# Here balance(1000) >= threshold(500), so the assert passes -> proof succeeds.
+balance = "1000"
+threshold = "500"

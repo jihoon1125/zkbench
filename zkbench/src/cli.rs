@@ -24,4 +24,30 @@ pub enum Command {
         #[arg(long, default_value_t = 3)]
         repeats: usize,
     },
+
+    /// Measure two or more circuits and print them side by side in one table.
+    Compare {
+        /// Circuit directories to measure and compare (two or more).
+        #[arg(required = true, num_args = 2..)]
+        circuit_dirs: Vec<PathBuf>,
+
+        /// Same as `run --repeats`: applied to every circuit. Minimum 1.
+        #[arg(long, default_value_t = 3)]
+        repeats: usize,
+    },
+
+    /// Render the JSON results in results/ into a self-contained HTML report.
+    Report {
+        /// Directory holding the measurement JSON files.
+        #[arg(long, default_value = "results")]
+        results_dir: PathBuf,
+
+        /// Output HTML file path.
+        #[arg(long, default_value = "results/report.html")]
+        out: PathBuf,
+
+        /// After generating, open the report in the default browser.
+        #[arg(long)]
+        open: bool,
+    },
 }

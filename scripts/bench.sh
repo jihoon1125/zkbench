@@ -45,6 +45,7 @@ PKG="$(awk -F'"' '/^[[:space:]]*name[[:space:]]*=/{print $2; exit}' "$CIRCUIT_DI
 BYTECODE="$CIRCUIT_DIR/target/$PKG.json"
 WITNESS="$CIRCUIT_DIR/target/$PKG.gz"
 PROOF_DIR="$CIRCUIT_DIR/target/proof"
+VK_DIR="$CIRCUIT_DIR/target/vk"     # bb write_vk writes a `vk` file in here
 
 mkdir -p "$RESULTS_DIR"
 
@@ -84,6 +85,14 @@ echo "==> circuit: $PKG  ($CIRCUIT_DIR)"
 echo "==> [warm-up] compile"
 ( cd "$CIRCUIT_DIR" && nargo compile )
 
+# ── Stage 0b: warm-up verification key (NOT measured) ─────────────────────
+# bb 5.x `prove` needs a verification key. We precompute it here (untimed) so
+# the measured prove below is pure proving, not proving + vk generation.
+# The vk is structural (like the gate count), so precomputing it is fair.
+echo "==> [warm-up] verification key (bb write_vk)"
+mkdir -p "$VK_DIR"
+bb write_vk -s "$BACKEND_SCHEME" -b "$BYTECODE" -o "$VK_DIR" >/dev/null 2>&1
+
 # ── Stage 1: measure witness generation (time + memory) ──────────────────
 # nargo execute resolves the package from the current working directory, so
 # cd into the circuit dir. Every bb path below is absolute, so cd is harmless.
@@ -106,10 +115,11 @@ echo "    acir_opcodes=${ACIR_OPCODES}, circuit_size(gates)=${CIRCUIT_SIZE}"
 # Note: the first ever run fetches the CRS (common reference string) from the
 # internet, which can inflate prove time. For a representative number, run
 # once (to cache the CRS) and use the second run's value.
+# We pass the precomputed vk (-k) so this measures pure proving.
 echo "==> [measure] proof generation (bb prove)"
 mkdir -p "$PROOF_DIR"
 measure PROVE_TIME_MS PROVE_MEM_KB -- \
-    bb prove -s "$BACKEND_SCHEME" -b "$BYTECODE" -w "$WITNESS" -o "$PROOF_DIR"
+    bb prove -s "$BACKEND_SCHEME" -b "$BYTECODE" -w "$WITNESS" -o "$PROOF_DIR" -k "$VK_DIR/vk"
 echo "    prove:   ${PROVE_TIME_MS} ms, peak ${PROVE_MEM_KB} KB"
 
 # ── Record tool versions (reproducibility) ───────────────────────────────

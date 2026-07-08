@@ -1,0 +1,6 @@
+[package]
+name = "pure_compare"
+type = "bin"
+authors = [""]
+
+[dependencies]

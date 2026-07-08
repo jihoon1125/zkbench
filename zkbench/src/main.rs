@@ -9,6 +9,7 @@ mod cli;
 mod measure;
 mod pipeline;
 mod report;
+mod report_html;
 mod tools;
 
 use clap::Parser;
@@ -34,5 +35,14 @@ async fn try_main() -> anyhow::Result<()> {
             circuit_dir,
             repeats,
         } => pipeline::run(&circuit_dir, repeats).await,
+        Command::Compare {
+            circuit_dirs,
+            repeats,
+        } => pipeline::compare(&circuit_dirs, repeats).await,
+        Command::Report {
+            results_dir,
+            out,
+            open,
+        } => report_html::generate(&results_dir, &out, open).await,
     }
 }

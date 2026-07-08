@@ -11,7 +11,7 @@
 // valid proof means "balance >= threshold" is true.
 use poseidon::poseidon::bn254::hash_2;
 
-global ROUNDS: u32 = 70;
+global ROUNDS: u32 = 10;
 
 fn main(balance: u64, threshold: pub u64) -> pub Field {
     let mut acc = balance as Field;
